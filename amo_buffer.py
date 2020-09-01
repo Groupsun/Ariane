@@ -1,4 +1,4 @@
-from header import *
+from amobuf_header import *
 
 # ********** 蒋宇涛 2020.8.27,28 Begin ********** #
 def amo_buffer():
@@ -26,9 +26,9 @@ def amo_buffer():
             data=U.w(64),
             sizex=U.w(2)
         )
-
-        amo_data_in=Wire(amo_op_t)
-        amo_data_out=Wire(amo_op_t)
+        
+        amo_data_in=Reg(amo_op_t)
+        amo_data_out=Reg(amo_op_t)
         
         io.amo_req_o.req <<= io.no_st_pending_i & io.amo_valid_commit_i & amo_valid
         io.amo_req_o.amo_op <<= amo_data_out.op
@@ -40,12 +40,26 @@ def amo_buffer():
         amo_data_in.data <<= io.data_i
         amo_data_in.paddr <<= io.paddr_i
         amo_data_in.sizex <<= io.data_size_i
+# ********** 蒋宇涛 2020.8.27,28 End ********** #
+# ********** 蒋宇涛 2020.8.29,31 Start ********** #        
+        i_amo_fifo = fifo_v3(DEPTH=1,dtype=amo_op_t)
+        fifo_io = i_amo_fifo.io
+
+        fifo_io.flush_i <<= flush_amo_buffer
+        fifo_io.testmode_i <<= U(0)
+        amo_valid <<= fifo_io.full_o
+        io.ready_o <<= fifo_io.empty_o
         
+        BundleLink(fifo_io.data_i,amo_data_in,amo_op_t)
+        fifo_io.push_i <<= io.valid_i
+
+        BundleLink(amo_data_out,fifo_io.data_o,amo_op_t)
+        fifo_io.pop_i <<= io.amo_resp_i.ack
         
         
     return amo_buf()
 
-# ********** 蒋宇涛 2020.8.27,28 End ********** #
+# ********** 蒋宇涛 2020.8.29,31 End ********** #
 
 if __name__ == '__main__':
     Emitter.dumpVerilog(Emitter.dump(Emitter.emit(amo_buffer()), "amo_buffer.fir"))
