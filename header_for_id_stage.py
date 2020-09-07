@@ -5,6 +5,7 @@ from math import *
 class riscv():
     PLEN = 56
     VLEN = 64
+    OpcodeSystem = U.w(7)(115)
 
 
     class priv_lvl_t(Module):
@@ -26,7 +27,6 @@ class riscv():
 
 class ariane_pkg():
     risc = riscv()
-    REG_ADDR_SIZE = 6,
 
     class cf_t(Module):
         NoCF
@@ -35,23 +35,23 @@ class ariane_pkg():
         JumpR
         Return
 
-        dtype = U.w(3)
+        dtype = Wire(U.w(3))
 
 
     class branchpredict_sbe_t():
-        cf = cft()
-        predict_address = U.w(risc.VLEN)
+        cf = cf_t()
+        predict_address = Wire(U.w(risc.VLEN))
 
 
     class exception_t():
-        cause = U.w(64)
-        tval = U.w(64)
-        valid = Bool
+        cause = Wire(U.w(64))
+        tval = Wire(U.w(64))
+        valid = Wire(Bool)
 
 
     class fetch_entry_t():
-        address = U.w(risc.VLEN)
-        instruction = U.w(32)
+        address = Wire(U.w(risc.VLEN))
+        instruction = Wire(U.w(32))
         branch_predict = branchpredict_sbe_t()
         ex = exception_t()
 
@@ -60,7 +60,7 @@ class ariane_pkg():
 # ********** 郑学钿 2020.8.31 Begin ********** #
 
     class fu_t(Module):
-        NONE = U(0)
+        NONE = Wire(U(0))
         LOAD = U(1)
         STORE = U(2)
         ALU = U(3)
@@ -116,21 +116,32 @@ class ariane_pkg():
 
 
     class scoreboard_entry_t():
-        pc = U.w(risc.VLEN),
-        trans_id = U.w(TRAN_ID_BITS),      #暂时未实现
-        fu = fu_t(),
-        op = fu_op(),
-        rs1 = U.w(REG_ADDR_SIZE),
-        rs2 = U.w(REG_ADDR_SIZE),
-        rd = U.w(REG_ADDR_SIZE),
-        result = U.w(64),
-        valid = Bool,
-        use_imm = Bool,
-        use_zimm = Bool,
-        use_pc = Bool,
+        pc = Wire(U.w(risc.VLEN))
+        trans_id = Wire(U.w(3))             #  源码是TRANS_ID_BITS
+                                            #  TRANS_ID_BITS= log2(NR_SB_ENTRIES) NR_SB_ENTRIES = 8
+                                            #  直接偷懒用3
+        fu = fu_t()
+        op = fu_op()
+        rs1 = Reg(U.w(6))                   #  源码位宽是REG_ADDR_SIZE
+        rs2 = Reg(U.w(6))                   #  REG_ADDR_SIZE = 6
+        rd = Reg(U.w(6))   
+        result = Wire(U.w(64))
+        valid = Wire(Bool)
+        use_imm = Wire(Bool)
+        use_zimm = Wire(Bool)
+        use_pc = Wire(Bool)
         ex = exception_t(),
         bp = branchpredict_sbe_t(),
-        is_compressed = Bool
+        is_compressed = Wire(Bool)
 
 
+    class irq_ctrl_t():
+        mie = Wire(U.w(64))
+        mip = Wire(U.w(64))
+        mideleg = Wire(U.w(64))
+        size = Wire(Bool)
+        global_enable = Wire(Bool)
+
+
+    
 # ********** 郑学钿 2020.8.31 End ********** #
