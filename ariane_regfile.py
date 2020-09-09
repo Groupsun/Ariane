@@ -1,22 +1,36 @@
 
 from pyhcl import *
-#********刘康杰 2020.8.31 Begin *******#
+#********刘康杰 2020.9.2 Begin *******#
    #DATA_WIDTH     = 32
    #NR_READ_PORTS  = 2
    #NR_WRITE_PORTS = 2
    #ZERO_REG_ZERO  = 0
-def Ariane_regfile_lol(DATA_WIDTH:int,NR_READ_PORTS:int,NR_WRITE_PORTS:int,ZERO_REG_ZERO:):
-  # ZERO_REG_ZEROd的数据类型还没弄好 
-    ADDR_WIDTH = 5
-    NUM_WORDS  = 2**ADDR_WIDTH
+
+class cluster_clock_gating(Module):
+    io = IO(
+            
+        clk_i=Input(U.w(1)),
+        en_i=Input(U.w(1)),
+        test_en_i=Input(U.w(1)),
+        clk_o=Output(U.w(1))
+    )
+    clk_en= Reg(U.w(1))
+    with when(io.clk_i==U.w(1)(0)):
+        clk_en <<= io.en_i | io.test_en_i
+    io.clk_o <<= io.clk_i & clk_en
+
+def Ariane_regfile_lol(DATA_WIDTH:int,NR_READ_PORTS:int,NR_WRITE_PORTS:int,ZERO_REG_ZERO:bool):
+ 
+    
   
     class ariane_regfile_lol(Module):
         io = IO(
+
             clk_i=Input(U.w(1)),
-            
+
             rst_ni=Input(U.w(1)),
             
-            test_en_i=Input(1),
+            test_en_i=Input(U.w(1)),
             
             raddr_i=Input(Vec(NR_READ_PORTS,U.w(5))),
 
@@ -30,77 +44,89 @@ def Ariane_regfile_lol(DATA_WIDTH:int,NR_READ_PORTS:int,NR_WRITE_PORTS:int,ZERO_
             
 
         )
+        ADDR_WIDTH = 5
+        NUM_WORDS  = 2**ADDR_WIDTH
+        flag=RegInit(U.w(1)(1))
+        
 
 
-    mem_clocks= U.w(NUM_WORDS-ZERO_REG_ZERO)
-    mem=Vec(NUM_WORDS,U.w(DATA_WIDTH))
-    waddr_onehot=Vec(NR_WRITE_PORTS,U.w(NUM_WORDS))
-    waddr_onehot_q=Vec(NR_WRITE_PORTS,U.w(NUM_WORDS))
-    wdata_q=Vec(NR_WRITE_PORTS,U.w(DATA_WIDTH))
 
-    for i in range(NR_READ_PORTS):
-        rdata_o[i]<<=mem[raddr_i[i][ADDR_WIDTH-1:0]]
-        #这里的连续赋值有点奇怪，估计要改
-    #还未修改部分
-    always_ff @(posedge clk_i, negedge rst_ni) begin : sample_waddr
-        if (~rst_ni) begin
-            wdata_q <= '0;
-        end else begin
-            for (int unsigned i = 0; i < NR_WRITE_PORTS; i++)
-                // enable flipflop will most probably infer clock gating
-                if (we_i[i]) begin
-                    wdata_q[i]     <= wdata_i[i];
-                end
-            waddr_onehot_q <= waddr_onehot;
-        end
-    end
+        clk_last= RegInit(U.w(1)(1))
+        with when(flag==U(1)):
+            clk_last<<=io.rst_ni
+            flag<<=U(0)
+            
+        mem_clocks= Reg(U.w(NUM_WORDS-ZERO_REG_ZERO))
+        mem=Reg(Vec(NUM_WORDS,U.w(DATA_WIDTH)))
+        waddr_onehot=Reg(Vec(NR_WRITE_PORTS,U.w(NUM_WORDS)))
+        waddr_onehot_q=Reg(Vec(NR_WRITE_PORTS,U.w(NUM_WORDS)))
+        wdata_q=Reg(Vec(NR_WRITE_PORTS,U.w(DATA_WIDTH)))
 
 
-    always_comb begin : decode_write_addess
-        for (int unsigned i = 0; i < NR_WRITE_PORTS; i++) begin
-            for (int unsigned j = 1; j < NUM_WORDS; j++) begin
-                if (we_i[i] && (waddr_i[i] == j))
-                    waddr_onehot[i][j] = 1'b1;
-                else
-                    waddr_onehot[i][j] = 1'b0;
-            end
-        end
-    end
-
-   
-    for (genvar x = ZERO_REG_ZERO; x < NUM_WORDS; x++) begin
-
-        logic [NR_WRITE_PORTS-1:0] waddr_ored;
-
-        for (genvar i = 0; i < NR_WRITE_PORTS; i++)
-          assign waddr_ored[i] = waddr_onehot[i][x];
-
-        cluster_clock_gating i_cg (
-            .clk_i     ( clk_i         ),
-            .en_i      ( |waddr_ored   ),
-            .test_en_i ( test_en_i     ),
-            .clk_o     ( mem_clocks[x] )
-        );
-    end
+        
 
 
-    always_latch begin : latch_wdata
-   
-        if (ZERO_REG_ZERO)
-            mem[0] = '0;
+        
+       
 
-        for (int unsigned i = 0; i < NR_WRITE_PORTS; i++) begin
-            for (int unsigned k = ZERO_REG_ZERO; k < NUM_WORDS; k++) begin
-                if (mem_clocks[k] && waddr_onehot_q[i][k])
-                    mem[k] = wdata_q[i];
-            end
-        end
-    end
-    
+            
 
+        for i in range(NR_READ_PORTS):
+            io.rdata_o[i]<<=mem[io.raddr_i[i][ADDR_WIDTH-1:0]]
+        
+        # always_ff
+        
+        with when(clk_last==U(0)&io.clk_i):
+             clk_last <<= U(1)
+             for i in range(NR_WRITE_PORTS):
+                 wdata_q[i] <<= U(0)
+        with when(clk_last==U(1)&~io.clk_i):
+            for i in range(NR_WRITE_PORTS):
+                with when(io.we_i[i]):
+                    wdata_q[i]<<= io.wdata_i[i]
+            waddr_onehot_q <<= waddr_onehot
 
 
     
+        #always_comb
+        for i in range (NR_WRITE_PORTS):
+            for j in range(1,NUM_WORDS):
+                with when(io.we_i[i]&(io.waddr_i[i] == U(j))):
+                    waddr_onehot[i][j] <<= U.w(1)(1)
+                with otherwise():
+                    waddr_onehot[i][j] <<= U.w(1)(0)
+    #
+        for x in range (ZERO_REG_ZERO,NUM_WORDS):
+            waddr_ored=Reg(U.w(NR_WRITE_PORTS))
+            for i in range (NR_WRITE_PORTS):
+                waddr_ored[i] <<= waddr_onehot[i][x]
+                i_cg=cluster_clock_gating()
+                i_cg.io.clk_i<<=io.clk_i
+                with when(waddr_ored==U(0)):
+                    i_cg.io.en_i<<=U(0)
+                with otherwise():
+                    i_cg.io.en_i<<=U(1)
+                i_cg.io.test_en_i<<=io.test_en_i
+                mem_clocks[x] <<=i_cg.io.clk_o
+
+
+
+   
+
+    #always_latch
+        if(ZERO_REG_ZERO):#with when?
+            mem[0] <<= U(0)
+
+        for i in range (NR_WRITE_PORTS):
+            for k in range (ZERO_REG_ZERO,NUM_WORDS):
+                with when(mem_clocks[k] & waddr_onehot_q[i][k]):
+                    mem[k] <<= wdata_q[i]
+
+  
 
     return ariane_regfile_lol()
-#********刘康杰 2020.8.31 End *******#
+#********刘康杰 2020.9.2 End *******#
+
+
+if __name__== '__main__':
+    Emitter.dumpVerilog(Emitter.dump(Emitter.emit(Ariane_regfile_lol(32, 2, 2, 0)), "Ariane_regfile_lol.fir"))

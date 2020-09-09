@@ -1,6 +1,7 @@
 
 from pyhcl import *
 import math
+from enum import Enum
 #riscv_pkg.sv
 # ********** 戴熠华 2020.8.27 Begin ********** #
 riscv_VLEN=64
@@ -10,7 +11,22 @@ riscv_VLEN=64
 NR_SB_ENTRIES = 8 #number of scoreboard entries
 TRANS_ID_BITS = int(math.log(NR_SB_ENTRIES,2)) #depending on the number of scoreboard entries we need that many bits
 REG_ADDR_SIZE = 6 #32 registers + 1 bit for re-naming = 6
-class fu_t(Module):
+
+
+# Floating-point extensions configuration
+RVF =U(1)       # Is F extension enabled
+RVD =U(1)       # Is D extension enabled
+#Transprecision floating-point extensions configuration
+XF16=U(0)       # Is half-precision float extension (Xf16) enabled
+XF16ALT=U(0)    # Is alternative half-precision float extension (Xf16alt) enabled
+XF8=U(0)        # Is quarter-precision float extension (Xf8) enabled
+#vvvv Don't change these by hand! vvvv
+FP_PRESENT=RVF|RVD|XF16|XF16ALT|XF8
+
+
+        
+        
+class fu_t(Enum):
     NONE=U(0)      # 0
     LOAD=U(1)      # 1
     STORE=U(2)     # 2
@@ -21,7 +37,7 @@ class fu_t(Module):
     FPU=U(7)       # 7
     FPU_VEC=U(8)   # 8
 
-class fu_op(Module):
+class fu_op(Enum):
     # basic ALU op 4
     ADD, SUB, ADDW, SUBW=U(0),U(1),U(2),U(3)
     # logic operations 3
@@ -90,12 +106,13 @@ class branchpredict_sbe_t(Module):
 #---------------
     
 class scoreboard_entry_t(Module):
+    io=IO(pp=Input(U.w(1)))
     pc=RegInit(U.w(riscv_VLEN)(0))          #PC of instruction
     trans_id=Wire(U.w(TRANS_ID_BITS)(0))    #this can potentially be simplified, we could index the scoreboard entry
                                             #with the transaction id in any case make the width more generic
                                             #functional unit to use
-    fu=fu_t()                               #functional unit to use
-    op=fu_op()                              #operation to perform in each functional unit
+    fu=Wire(U.w(7))                         #functional unit to use
+    op=Wire(U.w(4))                         #operation to perform in each functional unit
     rs1=RegInit(U.w(REG_ADDR_SIZE)(0))      #register source address 1
     rs2=RegInit(U.w(REG_ADDR_SIZE)(0))      #register source address 2
     rd=RegInit(U.w(REG_ADDR_SIZE)(0))       #register destination address
@@ -114,6 +131,96 @@ class scoreboard_entry_t(Module):
     is_compressed=Wire(Bool)                #signals a compressed instructions, we need this information at the commit stage if
 
                                             #we want jump accordingly e.g.: +4, +2
+
+class bbbb(Module):
+    io=IO(
+        bbb=scoreboard_entry_t
+        )
+# -------------------------------
+# Extract Src/Dst FP Reg from Op
+# -------------------------------
+def  is_rs1_fpr(op):
+    with when(FP_PRESENT): #makes function static for non-fp case
+        with when(fu_op.FMUL<=op and op<=fu_op.FNMADD): #Computational Operations (except ADD/SUB)
+            return U(1)
+        with elsewhen(op==fu_op.FCVT_F2I):#Float-Int Casts
+            return U(1)
+        with elsewhen(op==fu_op.FCVT_F2F):#Float-Float Casts
+            return U(1)
+        with elsewhen(op==fu_op.FSGNJ):#Sign Injections
+            return U(1)
+        with elsewhen(op==fu_op.FMV_F2X):#FPR-GPR Moves
+            return U(1)
+        with elsewhen(op==fu_op.FCMP):#Comparisons
+            return U(1)
+        with elsewhen(op==fu_op.FCLASS):#Classifications
+            return U(1)
+        with elsewhen(fu_op.VFMIN<=op and op<=fu_op.VFCPKCD_D):#Additional Vectorial FP ops
+            return U(1)
+        with otherwise():#all other ops
+            return U(0)
+    with otherwise():
+        return U(0) 
+
+def  is_rs2_fpr(op):
+    with when(FP_PRESENT): #makes function static for non-fp case
+        with when(fu_op.FSD<=op & op<=fu_op.FSB): #FP Stores
+            return U(1)
+        with when(fu_op.FADD<=op & op<=fu_op.FMIN_MAX): #Computational Operations (no sqrt)
+            return U(1)
+        with when(fu_op.FMADD<=op & op<=fu_op.FNMADD): #Fused Computational Operations
+            return U(1)
+        with elsewhen(op==fu_op.FCVT_F2F):#Vectorial F2F Conversions requrie target
+            return U(1)
+        with elsewhen(fu_op.FSGNJ<=op & op<=fu_op.FMV_F2X):#Sign Injections and moves mapped to SGNJ
+            return U(1)
+        with elsewhen(op==fu_op.FCMP):#Comparisons
+            return U(1)
+        with elsewhen(fu_op.VFMIN<=op & op<=fu_op.VFCPKCD_D):#Additional Vectorial FP ops
+            return U(1)
+        with otherwise():#all other ops
+            return U(0)
+    with otherwise():
+        return U(0)
+
+
+
+def is_rd_fpr(op):
+    with when(FP_PRESENT): #makes function static for non-fp case
+        with when(fu_op.FLD<=op & op<=fu_op.FLB): #FP Loads
+            return U(1)
+        with elsewhen(fu_op.FADD<=op & op<=fu_op.FNMADD):#Computational Operations
+            return U(1)
+        with elsewhen(op==fu_op.FCVT_I2F):#Int-Float Casts
+            return U(1)
+        with elsewhen(op==fu_op.FCVT_F2F):#Float-Float Casts
+            return U(1)
+        with elsewhen(op==fu_op.FSGNJ):#Sign Injections
+            return U(1)
+        with elsewhen(op==fu_op.FMV_X2F):#GPR-FPR Moves
+            return U(1)
+        with elsewhen(fu_op.VFMIN<=op & op<=fu_op.VFSGNJX):#Vectorial MIN/MAX and SGNJ
+            return U(1)
+        with elsewhen(fu_op.VFCPKAB_S<=op & op<=fu_op.VFCPKCD_D):#Vectorial FP cast and pack ops
+            return U(1)
+        with otherwise():#all other ops
+            return U(0)
+    with otherwise():
+        return U(0)
+    
+def is_imm_fpr(op):
+    with when(FP_PRESENT): #makes function static for non-fp case
+        with when(fu_op.FADD<=op & op<=fu_op.FSUB): #FP Loads
+            return U(1)
+        with elsewhen(fu_op.FMADD<=op & op<=fu_op.FNMADD):#Computational Operations
+            return U(1)
+        with elsewhen(fu_op.VFCPKAB_S<=op & op<=fu_op.VFCPKCD_D):#Vectorial FP cast and pack ops
+            return U(1)
+        with otherwise():#all other ops
+            return U(0)
+    with otherwise():
+        return U(0)  
+    
 # re_name.sv
 
 class re_name(Module):
@@ -125,7 +232,7 @@ class re_name(Module):
 
         #from/to scoreboard
 
-        issue_instr_i=Input(scoreboard_entry_t())
+        issue_instr_i=Input(scoreboard_entry_t()),
 
         issue_instr_valid_i=Input(Bool),
         issue_ack_o=Output(Bool),
@@ -152,15 +259,76 @@ class re_name(Module):
     name_bit_rs2=RegInit(U.w(1)(0))
     name_bit_rs3=RegInit(U.w(1)(0))
     name_bit_rd=RegInit(U.w(1)(0))
-
+    
     #default assignments
     re_name_table_gpr_n <<= re_name_table_gpr_q
     re_name_table_fpr_n <<= re_name_table_fpr_q
-
-    #io.issue_instr_o       <<= io.issue_instr_i
-
-    #with when(io.issue_ack_i==Bool(True)&io.flush_unissied_instr_i==Bool(False)):
+    io.issue_instr_o    <<= io.issue_instr_i
+    with when(io.issue_ack_i==Bool(True)&io.flush_unissied_instr_i==Bool(False)):
         #if we acknowledge the instruction tic the corresponding destination register
-    #    with when()
+        with when(is_rd_fpr(io.issue_instr_i.op)):
+            re_name_table_fpr_n[io.issue_instr_i.rd]<<=re_name_table_fpr_q[io.issue_instr_i.rd] & U(1)
+        with otherwise():
+            re_name_table_gpr_n[io.issue_instr_i.rd]<<=re_name_table_gpr_q[io.issue_instr_i.rd] & U(1)
+    #select name bit according to the register file used for source operands
+    with when(is_rs1_fpr(io.issue_instr_i.op)):
+        name_bit_rs1 <<=re_name_table_fpr_q[io.issue_instr_i.rs1]
+    with otherwise():
+        name_bit_rs1 <<=re_name_table_gpr_q[io.issue_instr_i.rs1]
+    
+    with when(is_rs2_fpr(io.issue_instr_i.op)):
+        name_bit_rs1 <<=re_name_table_fpr_q[io.issue_instr_i.rs2]
+    with otherwise():
+        name_bit_rs1 <<=re_name_table_gpr_q[io.issue_instr_i.rs2]
+    #rs3 is only used in certain FP operations and held like an immediate
+    name_bit_rs3<<=re_name_table_fpr_q[io.issue_instr_i.result[4:0]]
+    #select name bit according to the state it will have after renaming
+    with when(is_rd_fpr(io.issue_instr_i.op)):
+        name_bit_rd<<=re_name_table_fpr_q[io.issue_instr_i.rd] & U(1)
+    with otherwise():
+        name_bit_rd<<=re_name_table_gpr_q[io.issue_instr_i.rd] & (issue_instr_i.rd != U(0))
 
-# ********** 戴熠华 2020.8.30 End ********** #
+    #re-name the destination register
+    ENABLE_RENAME=U(1)
+    carry = Wire(Vec(6, Bool))
+    with when(is_imm_fpr(io.issue_instr_i.op)):
+        carry[5]<<=ENABLE_RENAME & name_bit_rs3
+        for i in range(5):
+            carry[i]<<=io.issue_instr_i.rd[i]
+        io.issue_instr_o.rd<<=CatVecH2L(carry)
+    carry[5]<<=name_bit_rd & name_bit_rd
+    for i in range(5):
+        carry[i]<<=io.issue_instr_i.rd[i]
+    io.issue_instr_o.rd<<=CatVecH2L(carry)
+
+    re_name_table_gpr_n[0]<<=U(1)
+
+    with when(io.flush_i==Bool(True)):
+        re_name_table_gpr_n <<=U(0)
+        re_name_table_fpr_n <<=U(0) 
+    #re-name the source registers
+# ********** 戴熠华 2020.9.1 End ********** #
+# ********** 戴熠华 2020.9.2 Begin ********** #
+    # -------------------
+    # Registers
+    # -------------------
+    flagger=RegInit(U.w(1)(0))
+    clk_i_reg=Reg(U.w(1))
+    rst_ni_reg=Reg(U.w(1))
+    with when(flagger==U(0)):
+        clk_i_reg<<=clk_i
+        rst_ni_reg<<=rst_ni
+    
+    with when((clk_i_reg==Bool(False)&clk_i==Bool(True)) or (rst_ni_reg==Bool(True) & rst_ni==Bool(False))):
+        with when(rst_ni==Bool(False)):
+            re_name_table_gpr_q<<=U(0)
+            re_name_table_fpr_q<<=U(0)
+        with otherwise:
+            re_name_table_gpr_q<<=re_name_table_gpr_n
+            re_name_table_fpr_q<<=re_name_table_fpr_n
+
+    clk_i_reg<<=clk_i
+    rst_ni_reg<<=rst_ni
+# ********** 戴熠华 2020.9.2 End ********** #
+if __name__ == '__main__':
+    Emitter.dumpVerilog(Emitter.dump(Emitter.emit(re_name()), "re_name.fir"))
