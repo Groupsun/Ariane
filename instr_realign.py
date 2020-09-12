@@ -28,9 +28,26 @@ def Instr_realign(FETCH_WIDTH: int):
         instr_o=Output(Vec(INSTR_PER_FETCH, 32))
     )
         instr_is_compressed = Reg(U.w(4))
+# ***********梁靖欣 9.10 Begin***********#
         for i in range(INSTR_PER_FETCH):
-            pass
-        # instr_is_compressed[i]=
+            temp=U(1)
+            with when(i!=0):
+                for t in range(i*16-1):
+                    with when(io.data_i[2+t] == U(1)):
+                        temp = temp
+                    with otherwise():
+                        temp = U(0)
+            with otherwise():
+                for t in range(3):
+                    with when(io.data_i[i] == U(1)):
+                        temp = temp
+                    with otherwise():
+                        temp = U(0)
+            with when(temp==U(1)):
+                instr_is_compressed[i]=U(0)
+            with otherwise():
+                instr_is_compressed[i]=U(1)
+# ***********梁靖欣 9.10 End***********#
         unaligned_instr_d = Reg(U.w(16))
         unaligned_instr_q = Reg(U.w(16))
         unaligned_d = Reg(U.w(1))
@@ -95,7 +112,6 @@ def Instr_realign(FETCH_WIDTH: int):
 # ***********梁靖欣 8.31 End***********#
 # ***********罗岚 8.31 Begin***********#
             with elsewhen(FETCH_WIDTH == U(64)):
-                # initial?
                 unaligned_d = unaligned_q
                 unaligned_address_d = unaligned_address_q
                 unaligned_instr_d = unaligned_instr_q
