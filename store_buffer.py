@@ -1,36 +1,8 @@
 from pyhcl import *
+from pkg import *
 import math
 
-##todo
-CONFIG_L1I_CACHELINE_WIDTH=U(128)
-CONFIG_L1I_ASSOCIATIVITY=U(4)
-CONFIG_L1I_SIZE=U(16*1024)
-CONFIG_L1D_CACHELINE_WIDTH=U(128)
-CONFIG_L1D_ASSOCIATIVITY=U(8)
-CONFIG_L1D_SIZE=U(32*1024)
-DCACHE_SET_ASSOC=CONFIG_L1D_ASSOCIATIVITY
-##log2
-DCACHE_INDEX_WIDTH=U(100)
-DCACHE_TAG_WIDTH=U(100)
 
-dcache_req_i_t=Bundle(
-    address_index=U.w(DCACHE_INDEX_WIDTH),
-    address_tag=U.w(DCACHE_TAG_WIDTH),
-    data_wdata=U.w(64),
-    data_req=U.w(1),
-    data_we=U.w(1),
-    data_be=U.w(8),
-    data_size=U.w(2),
-    kill_req=U.w(1),
-    tag_valid=U.w(1),
-)
-dcache_req_o_t=Bundle(
-    data_gnt=U.w(1),
-    data_rvalid=U.w(1),
-    data_rdata=U.w(64)
-    )
-DEPTH_SPEC=100
-DEPTH_COMMIT=100
 
 ## ********** 刘敏琪 8.28 Begin ********** ##
 class store_buffer(Module):

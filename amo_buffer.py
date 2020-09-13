@@ -1,7 +1,15 @@
-from amobuf_header import *
+from amobuf_and_loadunit_header import *
 
 # ********** 蒋宇涛 2020.8.27,28 Begin ********** #
+
 def amo_buffer():
+    amo_op_t=Bundle(
+        op=ariane_pkg.amo_t.dtype,
+        paddr=U.w(riscv.PLEN),
+        data=U.w(64),
+        sizex=U.w(2)
+    )
+    fifo_io = fifo_v3(DEPTH=1,dtype=amo_op_t).io
     class amo_buf(Module):
         io = IO(
             flush_i=Input(Bool),
@@ -20,12 +28,7 @@ def amo_buffer():
         flush_amo_buffer=Wire(Bool)
         amo_valid=Wire(Bool)
 
-        amo_op_t=Bundle(
-            op=ariane_pkg.amo_t.dtype,
-            paddr=U.w(riscv.PLEN),
-            data=U.w(64),
-            sizex=U.w(2)
-        )
+        
         
         amo_data_in=Reg(amo_op_t)
         amo_data_out=Reg(amo_op_t)
@@ -40,12 +43,14 @@ def amo_buffer():
         amo_data_in.data <<= io.data_i
         amo_data_in.paddr <<= io.paddr_i
         amo_data_in.sizex <<= io.data_size_i
-# ********** 蒋宇涛 2020.8.27,28 End ********** #
-# ********** 蒋宇涛 2020.8.29,31 Start ********** #        
-        i_amo_fifo = fifo_v3(DEPTH=1,dtype=amo_op_t)
-        fifo_io = i_amo_fifo.io
 
+        flush_amo_buffer <<= io.flush_i & (~io.amo_valid_commit_i)
+        # ********** 蒋宇涛 2020.8.27,28 End ********** #
+        # ********** 蒋宇涛 2020.8.29,31 Start ********** #        
+        
+        
         fifo_io.flush_i <<= flush_amo_buffer
+        
         fifo_io.testmode_i <<= U(0)
         amo_valid <<= fifo_io.full_o
         io.ready_o <<= fifo_io.empty_o
@@ -55,7 +60,6 @@ def amo_buffer():
 
         BundleLink(amo_data_out,fifo_io.data_o,amo_op_t)
         fifo_io.pop_i <<= io.amo_resp_i.ack
-        
         
     return amo_buf()
 
